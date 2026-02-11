@@ -1,0 +1,10 @@
+__pycache__/
+_tmp/
+temp_img/
+*.pyc
+.pytest_cache/
+.env
+node/exapi_lib/node_modules/
+node/exapi_lib/.git/
+/shared_files/exapi_cosmos/
+*.zip
