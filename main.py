@@ -21,7 +21,7 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
 from astrbot.api.message_components import File, Image, Node, Nodes, Plain
 
-@register("exapi_cosmos", "zhanzhao2", "exHentai 搜索插件（基于 exApi）", "0.2.0", "https://github.com/zhanzhao2/astrbot_plugin_exapi_cosmos")
+@register("exapi_cosmos", "zhanzhao2", "exHentai 搜索插件（基于 exApi）", "0.2.1", "https://github.com/zhanzhao2/astrbot_plugin_exapi_cosmos")
 class ExApiCosmosPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
