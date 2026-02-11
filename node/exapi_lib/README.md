@@ -5,7 +5,6 @@
 
 ## 来源说明
 - 当前使用的代码来源：`https://github.com/zhanzhao2/exhentai-api`。
-- 旧文档中的 `npm install exapi` 属于历史描述。
 - 本插件不依赖线上 npm 包，而是直接使用仓库内本地源码。
 
 ## 在本插件中的安装方式
