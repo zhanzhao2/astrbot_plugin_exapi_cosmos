@@ -33,6 +33,8 @@ class ExDownloader:
         get_trust_env: Callable[[], bool] | None = None,
         get_max_redirects: Callable[[], int] | None = None,
         get_hath_use_proxy: Callable[[], bool] | None = None,
+        get_gallery_dl_bin: Callable[[], str] | None = None,
+        get_gallery_dl_timeout: Callable[[], int] | None = None,
     ):
         self._get_proxy = get_proxy
         self._get_cookie_header = get_cookie_header
@@ -43,6 +45,8 @@ class ExDownloader:
         self._get_trust_env = get_trust_env or (lambda: False)
         self._get_max_redirects = get_max_redirects or (lambda: 5)
         self._get_hath_use_proxy = get_hath_use_proxy or (lambda: False)
+        self._get_gallery_dl_bin = get_gallery_dl_bin or (lambda: 'gallery-dl')
+        self._get_gallery_dl_timeout = get_gallery_dl_timeout or (lambda: 120)
 
     def _ssl_param(self):
         return None if self._get_tls_verify() else False
@@ -66,7 +70,7 @@ class ExDownloader:
         gdl_dir = out_path.parent / f'.gdl_{out_path.stem}'
         gdl_dir.mkdir(parents=True, exist_ok=True)
         cmd = [
-            'gallery-dl', '--no-skip', '--no-mtime', '-4',
+            self._get_gallery_dl_bin(), '--no-skip', '--no-mtime', '-4',
             '-R', '2', '--http-timeout', ('25' if fast else '45'),
             '-a', headers.get('User-Agent', 'Mozilla/5.0'),
             '-D', str(gdl_dir), '-f', '/O',
@@ -80,7 +84,11 @@ class ExDownloader:
         cmd.append(url)
         try:
             proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-            await proc.communicate()
+            try:
+                await asyncio.wait_for(proc.communicate(), timeout=float(self._get_gallery_dl_timeout()))
+            except asyncio.TimeoutError:
+                proc.kill()
+                return None
             if proc.returncode != 0:
                 return None
             files = [p for p in gdl_dir.rglob('*') if p.is_file() and p.stat().st_size > 1024 and not p.name.endswith('.part')]
@@ -102,6 +110,29 @@ class ExDownloader:
                 shutil.rmtree(gdl_dir, ignore_errors=True)
             except Exception:
                 pass
+
+    async def _run_windowed(
+        self,
+        tasks: list[tuple[int, Callable[[], Awaitable[str | None]]]],
+        window_size: int = 120,
+    ) -> tuple[list[tuple[int, str]], list[int]]:
+        ok: list[tuple[int, str]] = []
+        fail_idx: list[int] = []
+        total = len(tasks)
+        if total <= 0:
+            return ok, fail_idx
+        window_size = max(10, min(window_size, 300))
+        for pos in range(0, total, window_size):
+            part = tasks[pos: pos + window_size]
+            rs = await asyncio.gather(*[fn() for _, fn in part], return_exceptions=True)
+            for (idx, _), r in zip(part, rs):
+                if isinstance(r, str) and r:
+                    ok.append((idx, r))
+                else:
+                    fail_idx.append(idx)
+        ok.sort(key=lambda x: x[0])
+        fail_idx.sort()
+        return ok, fail_idx
 
     async def download_image(
         self,
@@ -460,14 +491,16 @@ class ExDownloader:
                 return None
 
 
-        paths = await asyncio.gather(*[_one(i + 1, u) for i, u in enumerate(previews)], return_exceptions=True)
-        ok: list[tuple[int, str]] = []
-        fail_idx: list[int] = []
-        for idx, pp in enumerate(paths, 1):
-            if isinstance(pp, str) and pp:
-                ok.append((idx, pp))
-            else:
-                fail_idx.append(idx)
+        jobs: list[tuple[int, Callable[[], Awaitable[str | None]]]] = []
+        for i, u in enumerate(previews):
+            idx = i + 1
+
+            async def _job(iidx=idx, uu=u):
+                return await _one(iidx, uu)
+
+            jobs.append((idx, _job))
+
+        ok, fail_idx = await self._run_windowed(jobs, window_size=160)
         return ok, fail_idx, len(previews)
 
     async def download_mid_views_eh(
@@ -655,45 +688,40 @@ class ExDownloader:
 
                 return await _finish(None)
 
-        rs = await asyncio.gather(*[_one(i, v) for i, v in enumerate(views)], return_exceptions=True)
-        ok: list[tuple[int, str]] = []
-        fail_idx: list[int] = []
-        for i, r in enumerate(rs, 1):
-            if isinstance(r, Exception):
-                fail_idx.append(i)
-                continue
-            _, p = r
-            if isinstance(p, str) and p:
-                ok.append((i, p))
-            else:
-                fail_idx.append(i)
-        ok.sort(key=lambda x: x[0])
+        jobs: list[tuple[int, Callable[[], Awaitable[str | None]]]] = []
+        for i, v in enumerate(views):
+            page_no = i + 1
+
+            async def _job(ii=i, vv=v):
+                _, pth = await _one(ii, vv)
+                return pth
+
+            jobs.append((page_no, _job))
+
+        ok, fail_idx = await self._run_windowed(jobs, window_size=120)
 
         if fail_idx:
             self._logger.info(f"[exapi_cosmos][mid-prof] rescue start fail={len(fail_idx)}")
             rescue_max_retry = 2
-            rescue_rs = await asyncio.gather(
-                *[
-                    _one(
-                        i - 1,
-                        views[i - 1],
+            rescue_jobs: list[tuple[int, Callable[[], Awaitable[str | None]]]] = []
+            for i in fail_idx:
+                page_no = i
+
+                async def _job(ii=i):
+                    _, pth = await _one(
+                        ii - 1,
+                        views[ii - 1],
                         retry_limit=rescue_max_retry,
                         force_html_first=True,
                         skip_hath_limit=max_skip_hath_keys * 3,
                         local_host_fail={},
                         count_done=False,
                     )
-                    for i in fail_idx
-                ],
-                return_exceptions=True,
-            )
-            rescue_ok: list[tuple[int, str]] = []
-            for r in rescue_rs:
-                if isinstance(r, Exception):
-                    continue
-                page_no, p = r
-                if isinstance(p, str) and p:
-                    rescue_ok.append((page_no, p))
+                    return pth
+
+                rescue_jobs.append((page_no, _job))
+
+            rescue_ok, _ = await self._run_windowed(rescue_jobs, window_size=80)
             if rescue_ok:
                 ok_map = {i: p for i, p in ok}
                 for i, p in rescue_ok:

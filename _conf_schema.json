@@ -59,6 +59,21 @@
     "description": "aiohttp trust_env（读取环境变量代理）",
     "default": false
   },
+  "node_bin": {
+    "type": "string",
+    "description": "Node 可执行文件名或绝对路径",
+    "default": "node"
+  },
+  "gallery_dl_bin": {
+    "type": "string",
+    "description": "gallery-dl 可执行文件名或绝对路径",
+    "default": "gallery-dl"
+  },
+  "gallery_dl_timeout_sec": {
+    "type": "int",
+    "description": "gallery-dl 单次下载超时秒数",
+    "default": 120
+  },
   "max_redirects": {
     "type": "int",
     "description": "fullimg 跳转最大次数",

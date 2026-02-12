@@ -1,6 +1,6 @@
 [project]
 name = "astrbot-plugin-exapi-cosmos"
-version = "0.2.4"
+version = "0.2.5"
 description = "AstrBot exHentai 插件，支持搜索、高级搜索、详情预览与打包发送"
 readme = "README.md"
 requires-python = ">=3.10"

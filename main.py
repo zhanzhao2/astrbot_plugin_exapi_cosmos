@@ -25,7 +25,7 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
 from astrbot.api.message_components import File, Image, Node, Nodes, Plain
 
-@register("exapi_cosmos", "zhanzhao2", "exHentai 搜索插件（基于 exApi）", "0.2.4", "https://github.com/zhanzhao2/astrbot_plugin_exapi_cosmos")
+@register("exapi_cosmos", "zhanzhao2", "exHentai 搜索插件（基于 exApi）", "0.2.5", "https://github.com/zhanzhao2/astrbot_plugin_exapi_cosmos")
 class ExApiCosmosPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
@@ -43,6 +43,8 @@ class ExApiCosmosPlugin(Star):
             get_trust_env=self._trust_env,
             get_max_redirects=self._max_redirects,
             get_hath_use_proxy=self._hath_use_proxy,
+            get_gallery_dl_bin=self._gallery_dl_bin,
+            get_gallery_dl_timeout=self._gallery_dl_timeout,
         )
         try:
             self._cleanup_orphans()
@@ -93,6 +95,16 @@ class ExApiCosmosPlugin(Star):
 
     def _trust_env(self) -> bool:
         return bool(self.config.get("trust_env", False))
+
+    def _node_bin(self) -> str:
+        return str(self.config.get("node_bin", "node") or "node").strip() or "node"
+
+    def _gallery_dl_bin(self) -> str:
+        return str(self.config.get("gallery_dl_bin", "gallery-dl") or "gallery-dl").strip() or "gallery-dl"
+
+    def _gallery_dl_timeout(self) -> int:
+        n = int(self.config.get("gallery_dl_timeout_sec", 120) or 120)
+        return max(20, min(n, 1200))
 
     def _max_redirects(self) -> int:
         n = int(self.config.get("max_redirects", 5) or 5)
@@ -166,6 +178,7 @@ class ExApiCosmosPlugin(Star):
         while True:
             await asyncio.sleep(3600)
             self._cleanup_orphans()
+            self._cache_gc()
 
     def _zip_limit(self) -> int:
         n = int(self.config.get("zip_image_limit", 500) or 500)
@@ -187,9 +200,12 @@ class ExApiCosmosPlugin(Star):
         }
 
     def _get_zip_pending(self, event: AstrMessageEvent) -> dict[str, Any] | None:
-        self._cache_gc()
         val = self._zip_pending.get(self._cache_key(event))
         if not isinstance(val, dict):
+            return None
+        ts = float(val.get("ts", 0.0) or 0.0)
+        if time.time() - ts > self._cache_ttl_sec():
+            self._zip_pending.pop(self._cache_key(event), None)
             return None
         href = val.get("href")
         if not isinstance(href, list) or len(href) < 2:
@@ -212,8 +228,12 @@ class ExApiCosmosPlugin(Star):
         }
 
     def _pick_cached_href(self, event: AstrMessageEvent, idx: int) -> list[str] | None:
-        self._cache_gc()
         entry = self._last_items.get(self._cache_key(event), {})
+        if isinstance(entry, dict):
+            ts = float(entry.get("ts", 0.0) or 0.0)
+            if time.time() - ts > self._cache_ttl_sec():
+                self._last_items.pop(self._cache_key(event), None)
+                return None
         arr = entry.get("items", []) if isinstance(entry, dict) else []
         if 1 <= idx <= len(arr):
             h = arr[idx - 1].get("href") or []
@@ -429,7 +449,7 @@ class ExApiCosmosPlugin(Star):
             raise RuntimeError("缺少 Cookie 字段: " + ", ".join(m))
         body = {"action": action, "cookies": self._cookies(), "proxy": self._bridge_proxy(), **payload}
         p = await asyncio.create_subprocess_exec(
-            "node", str(self.bridge),
+            self._node_bin(), str(self.bridge),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -814,8 +834,15 @@ class ExApiCosmosPlugin(Star):
             host_fail: dict[str, int] = {}
             t0 = time.time()
             t_download0 = time.perf_counter()
-            connector = aiohttp.TCPConnector(limit=48, limit_per_host=8, ttl_dns_cache=300, ssl=False, enable_cleanup_closed=True, family=socket.AF_INET)
-            async with aiohttp.ClientSession(connector=connector, trust_env=True) as dl_sess:
+            connector = aiohttp.TCPConnector(
+                limit=48,
+                limit_per_host=8,
+                ttl_dns_cache=300,
+                ssl=(False if not self._tls_verify() else None),
+                enable_cleanup_closed=True,
+                family=socket.AF_INET,
+            )
+            async with aiohttp.ClientSession(connector=connector, trust_env=self._trust_env()) as dl_sess:
                 ok, fail_idx, total = await self.downloader.download_gallery_images(
                     quality=quality,
                     href=href,
@@ -930,8 +957,15 @@ class ExApiCosmosPlugin(Star):
             host_fail: dict[str, int] = {}
             t0 = time.time()
             t_download0 = time.perf_counter()
-            connector = aiohttp.TCPConnector(limit=48, limit_per_host=8, ttl_dns_cache=300, ssl=False, enable_cleanup_closed=True, family=socket.AF_INET)
-            async with aiohttp.ClientSession(connector=connector, trust_env=True) as dl_sess:
+            connector = aiohttp.TCPConnector(
+                limit=48,
+                limit_per_host=8,
+                ttl_dns_cache=300,
+                ssl=(False if not self._tls_verify() else None),
+                enable_cleanup_closed=True,
+                family=socket.AF_INET,
+            )
+            async with aiohttp.ClientSession(connector=connector, trust_env=self._trust_env()) as dl_sess:
                 ok, fail_idx, total = await self.downloader.download_gallery_images(
                     quality=quality,
                     href=href,

@@ -10,7 +10,7 @@
 
 <br>
 <div align="center">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/VERSION-v0.2.4-6C5CE7?style=for-the-badge" alt="Version"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/VERSION-v0.2.5-6C5CE7?style=for-the-badge" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-009688?style=for-the-badge" alt="License"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/PYTHON-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"></a>
 </div>
@@ -138,6 +138,9 @@ services:
 | `request_timeout` | 请求超时（秒） |
 | `tls_verify` | TLS 证书校验（默认开启，建议保持） |
 | `trust_env` | aiohttp 是否读取环境变量代理（默认关闭） |
+| `node_bin` | Node 可执行文件名/路径 |
+| `gallery_dl_bin` | gallery-dl 可执行文件名/路径 |
+| `gallery_dl_timeout_sec` | gallery-dl 单次下载超时（秒） |
 | `max_redirects` | fullimg 跳转最大次数（默认 5） |
 | `cache_ttl_sec` | 会话缓存 TTL（默认 3600 秒） |
 | `cache_max_sessions` | 会话缓存最大条数（默认 200） |
