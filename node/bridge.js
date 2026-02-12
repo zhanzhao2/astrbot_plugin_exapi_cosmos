@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 "use strict";
-const ExApi=require('./exapi_lib/exApi').default;
+const ExApi=require('./exapi_lib/exApi').default;const EhParse=require('./exapi_lib/ehParse');const EhFetch=require('./exapi_lib/ehFetch');
 function out(v){process.stdout.write(JSON.stringify(v)+'\n');}
 function read(){return new Promise(r=>{let d='';process.stdin.setEncoding('utf8');process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>r(d));});}
 function nPage(v,d=1){v=parseInt(v,10);return Number.isInteger(v)&&v>0?v:d;}
@@ -21,6 +21,7 @@ function parseView(html,v){
   const referer=(Array.isArray(v)&&v.length>1)?('https://exhentai.org/s/'+v[0]+'/'+v[1]):'https://exhentai.org/';
   return {sample,origin,best:(origin||sample),referer,nl};
 }
+async function fetchSearchPage(api,q,p){let h=await api._EhHtml.getSearch(q,1),c=1;while(c<p){const m=String(h||'').match(/href="([^"]*next=[^"<>]+)"/i);if(!m)break;let u=dec(m[1]).replace(/&amp;/g,'&');if(u.startsWith('/'))u='https://exhentai.org'+u;else if(u.startsWith('//'))u='https:'+u;h=await EhFetch.fetch(u);c++;}const s=new EhParse.EhSearch(h,q,api._EhHtml.getSearch);s.page=c;return s;}
 
 (async()=>{
 let input={};
@@ -42,17 +43,15 @@ if(action==='search'){
   const keyword=String(input.keyword||'').trim();
   if(!keyword){out({ok:false,error:'keyword不能为空'});process.exitCode=1;return;}
   const page=nPage(input.page,1);
-  const s=await api.search(keyword);
-  await move(s,page);
-  out({ok:true,data:{page:s.page||page,pages:s.pages,items:s.getAll()}});
+  const s=await fetchSearchPage(api,keyword,page);
+  out({ok:true,data:{page:s.page||1,pages:s.pages,items:s.getAll()}});
   return;
 }
 if(action==='advanced_search'){
   const cfg=(input.config&&typeof input.config==='object'&&!Array.isArray(input.config))?input.config:{};
   const page=nPage(input.page,1);
-  const s=await api.search(cfg);
-  await move(s,page);
-  out({ok:true,data:{page:s.page||page,pages:s.pages,items:s.getAll()}});
+  const s=await fetchSearchPage(api,cfg,page);
+  out({ok:true,data:{page:s.page||1,pages:s.pages,items:s.getAll()}});
   return;
 }
 if(action==='resolve_views'){const v=input.views;if(!Array.isArray(v)){out({ok:false,error:'views'});process.exitCode=1;return;}const t=3,r=[];for(let c=0;c<v.length;c+=t){const b=v.slice(c,c+t).map(async x=>{try{return parseView(await api._EhHtml.getViewImg(x),x);}catch(_){const ref=(Array.isArray(x)&&x.length>1)?('https://exhentai.org/s/'+x[0]+'/'+x[1]):'https://exhentai.org/';return {sample:'',origin:'',best:'',referer:ref,nl:''};}});r.push(...(await Promise.all(b)));}out({ok:true,data:{candidates:r}});return;}

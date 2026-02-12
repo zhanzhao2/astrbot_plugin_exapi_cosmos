@@ -143,5 +143,10 @@ services:
 - `node/bridge.js`：Python ↔ Node 桥接
 - `node/exapi_lib/`：页面解析和下载辅助库
 
+## 致谢
+
+- 感谢开源项目 **gallery-dl**（https://github.com/mikf/gallery-dl），本插件在 H@H 图片下载链路中引入其能力以提升稳定性与兼容性。
+- 感谢 **exApi / Ehviewer** 社区的开源实践与思路参考。
+
 ## 免责声明
 本项目仅用于技术研究与学习交流，请遵守相关法律法规与站点条款。
