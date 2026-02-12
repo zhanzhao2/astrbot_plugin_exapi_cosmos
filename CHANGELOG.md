@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.2.3 - 2026-02-12
+- H@H 下载策略调整为仅直连 gallery-dl（不走代理）
+- 封面/海报下载强制走代理
+- 下载器重构：exzip/eximg 共用下载入口，mid rescue 复用主流程
+
 ## v0.2.2 - 2026-02-12
 - 下载策略：H@H 强制直连 gallery-dl；封面/海报强制走代理
 - 修复：showpage API 参数类型（gid/page）
