@@ -10,7 +10,7 @@
 
 <br>
 <div align="center">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/VERSION-v0.2.1-6C5CE7?style=for-the-badge" alt="Version"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/VERSION-v0.2.2-6C5CE7?style=for-the-badge" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-009688?style=for-the-badge" alt="License"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/PYTHON-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"></a>
 </div>
@@ -138,7 +138,9 @@ services:
 | `request_timeout` | 请求超时（秒） |
 
 ## 目录结构
-- `main.py`：插件主逻辑
+- `main.py`：命令路由、会话状态、消息发送与调用编排
+- `ex_parser.py`：HTML/URL 纯解析函数（extract/split/normalize）
+- `downloader.py`：图片下载、gallery-dl 集成、mid 链路解析与重试
 - `_conf_schema.json`：配置 schema
 - `node/bridge.js`：Python ↔ Node 桥接
 - `node/exapi_lib/`：页面解析和下载辅助库

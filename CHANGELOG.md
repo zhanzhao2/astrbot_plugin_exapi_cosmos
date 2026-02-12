@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.2 - 2026-02-12
+- 下载策略：H@H 强制直连 gallery-dl；封面/海报强制走代理
+- 修复：showpage API 参数类型（gid/page）
+- 重构：拆分 parser/downloader/main 并删除冗余重复下载逻辑
+- 优化：mid 下载 rescue 复用主流程，减少重复代码
+
 ## v0.2.1 - 2026-02-11
 - 新增 logo 并重构 README（对齐 JM-Cosmos 风格）
 - 明确说明：AstrBot 与 NapCat 分离部署时，必须配置共享卷才能发送文件
