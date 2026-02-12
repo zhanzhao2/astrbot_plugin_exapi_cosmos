@@ -1,1 +1,87 @@
-{"ipb_member_id": {"type": "string", "description": "Cookie: ipb_member_id", "default": ""}, "ipb_pass_hash": {"type": "string", "description": "Cookie: ipb_pass_hash", "default": ""}, "igneous": {"type": "string", "description": "Cookie: igneous", "default": ""}, "use_proxy": {"type": "bool", "description": "使用代理", "default": false}, "proxy_url": {"type": "string", "description": "代理地址", "default": ""}, "search_page_size": {"type": "int", "description": "每页显示条数", "default": 5}, "request_timeout": {"type": "int", "description": "请求超时秒数", "default": 90}, "debug_mode": {"type": "bool", "description": "调试模式", "default": false}, "preview_limit": {"type": "int", "description": "详情预览图最大张数", "default": 200}, "zip_image_limit": {"type": "int", "description": "完整压缩包最大尝试下载张数", "default": 500}}
+{
+  "ipb_member_id": {
+    "type": "string",
+    "description": "Cookie: ipb_member_id",
+    "default": ""
+  },
+  "ipb_pass_hash": {
+    "type": "string",
+    "description": "Cookie: ipb_pass_hash",
+    "default": ""
+  },
+  "igneous": {
+    "type": "string",
+    "description": "Cookie: igneous",
+    "default": ""
+  },
+  "use_proxy": {
+    "type": "bool",
+    "description": "使用代理",
+    "default": false
+  },
+  "proxy_url": {
+    "type": "string",
+    "description": "代理地址",
+    "default": ""
+  },
+  "search_page_size": {
+    "type": "int",
+    "description": "每页显示条数",
+    "default": 5
+  },
+  "request_timeout": {
+    "type": "int",
+    "description": "请求超时秒数",
+    "default": 90
+  },
+  "debug_mode": {
+    "type": "bool",
+    "description": "调试模式",
+    "default": false
+  },
+  "preview_limit": {
+    "type": "int",
+    "description": "详情预览图最大张数",
+    "default": 200
+  },
+  "zip_image_limit": {
+    "type": "int",
+    "description": "完整压缩包最大尝试下载张数",
+    "default": 500
+  },
+  "tls_verify": {
+    "type": "bool",
+    "description": "TLS 证书校验（关闭会降低安全性）",
+    "default": true
+  },
+  "trust_env": {
+    "type": "bool",
+    "description": "aiohttp trust_env（读取环境变量代理）",
+    "default": false
+  },
+  "max_redirects": {
+    "type": "int",
+    "description": "fullimg 跳转最大次数",
+    "default": 5
+  },
+  "cache_ttl_sec": {
+    "type": "int",
+    "description": "会话缓存过期秒数（last_items/zip_pending）",
+    "default": 3600
+  },
+  "cache_max_sessions": {
+    "type": "int",
+    "description": "会话缓存最大条目数（last_items/zip_pending）",
+    "default": 200
+  },
+  "force_proxy_for_covers": {
+    "type": "bool",
+    "description": "搜索封面/预览图下载强制走代理（仅当 use_proxy=true 时生效）",
+    "default": true
+  },
+  "hath_use_proxy": {
+    "type": "bool",
+    "description": "H@H 下载使用代理（gallery-dl）",
+    "default": false
+  }
+}

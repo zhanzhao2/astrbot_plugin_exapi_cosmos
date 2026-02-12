@@ -10,7 +10,7 @@
 
 <br>
 <div align="center">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/VERSION-v0.2.3-6C5CE7?style=for-the-badge" alt="Version"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/VERSION-v0.2.4-6C5CE7?style=for-the-badge" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-009688?style=for-the-badge" alt="License"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/PYTHON-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"></a>
 </div>
@@ -136,6 +136,13 @@ services:
 | `zip_image_limit` | 压缩包/合并图下载上限 |
 | `search_page_size` | 搜索结果每页显示数 |
 | `request_timeout` | 请求超时（秒） |
+| `tls_verify` | TLS 证书校验（默认开启，建议保持） |
+| `trust_env` | aiohttp 是否读取环境变量代理（默认关闭） |
+| `max_redirects` | fullimg 跳转最大次数（默认 5） |
+| `cache_ttl_sec` | 会话缓存 TTL（默认 3600 秒） |
+| `cache_max_sessions` | 会话缓存最大条数（默认 200） |
+| `force_proxy_for_covers` | 封面/预览图下载是否强制代理（默认开启） |
+| `hath_use_proxy` | H@H 下载是否使用代理（默认关闭） |
 
 ## 目录结构
 - `main.py`：命令路由、会话状态、消息发送与调用编排

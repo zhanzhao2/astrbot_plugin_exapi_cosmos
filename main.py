@@ -25,15 +25,25 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
 from astrbot.api.message_components import File, Image, Node, Nodes, Plain
 
-@register("exapi_cosmos", "zhanzhao2", "exHentai 搜索插件（基于 exApi）", "0.2.3", "https://github.com/zhanzhao2/astrbot_plugin_exapi_cosmos")
+@register("exapi_cosmos", "zhanzhao2", "exHentai 搜索插件（基于 exApi）", "0.2.4", "https://github.com/zhanzhao2/astrbot_plugin_exapi_cosmos")
 class ExApiCosmosPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
         self.config = config or {}
         self.bridge = Path(__file__).parent / "node" / "bridge.js"
-        self._last_items: dict[str, list[dict[str, Any]]] = {}
+        self._last_items: dict[str, dict[str, Any]] = {}
         self._zip_pending: dict[str, dict[str, Any]] = {}
-        self.downloader = ExDownloader(get_proxy=self._proxy, get_cookie_header=self._cookie_header, call_bridge=self._call, get_temp_root=self._temp_root, logger=logger)
+        self.downloader = ExDownloader(
+            get_proxy=self._proxy,
+            get_cookie_header=self._cookie_header,
+            call_bridge=self._call,
+            get_temp_root=self._temp_root,
+            logger=logger,
+            get_tls_verify=self._tls_verify,
+            get_trust_env=self._trust_env,
+            get_max_redirects=self._max_redirects,
+            get_hath_use_proxy=self._hath_use_proxy,
+        )
         try:
             self._cleanup_orphans()
             asyncio.get_running_loop().create_task(self._cleanup_job())
@@ -78,8 +88,54 @@ class ExApiCosmosPlugin(Star):
         n = int(self.config.get("request_timeout", 90) or 90)
         return max(10, min(n, 300))
 
+    def _tls_verify(self) -> bool:
+        return bool(self.config.get("tls_verify", True))
+
+    def _trust_env(self) -> bool:
+        return bool(self.config.get("trust_env", False))
+
+    def _max_redirects(self) -> int:
+        n = int(self.config.get("max_redirects", 5) or 5)
+        return max(0, min(n, 10))
+
+    def _cache_ttl_sec(self) -> int:
+        n = int(self.config.get("cache_ttl_sec", 3600) or 3600)
+        return max(60, min(n, 86400))
+
+    def _cache_max_sessions(self) -> int:
+        n = int(self.config.get("cache_max_sessions", 200) or 200)
+        return max(20, min(n, 2000))
+
+    def _force_proxy_for_covers(self) -> bool:
+        return bool(self.config.get("force_proxy_for_covers", True))
+
+    def _hath_use_proxy(self) -> bool:
+        return bool(self.config.get("hath_use_proxy", False))
+
     def _cache_key(self, event: AstrMessageEvent) -> str:
         return f"{event.get_platform_id()}:{event.get_session_id()}"
+
+    def _cache_gc(self):
+        now = time.time()
+        ttl = self._cache_ttl_sec()
+        cap = self._cache_max_sessions()
+
+        def _trim(store: dict[str, dict[str, Any]]):
+            for k in list(store.keys()):
+                v = store.get(k) or {}
+                ts = float(v.get("ts", 0.0) or 0.0)
+                if now - ts > ttl:
+                    store.pop(k, None)
+            if len(store) <= cap:
+                return
+            ordered = sorted(store.items(), key=lambda kv: float((kv[1] or {}).get("ts", 0.0) or 0.0), reverse=True)
+            keep = {k for k, _ in ordered[:cap]}
+            for k in list(store.keys()):
+                if k not in keep:
+                    store.pop(k, None)
+
+        _trim(self._last_items)
+        _trim(self._zip_pending)
 
     def _temp_root(self) -> Path:
         for root in (Path("/shared_files/exapi_cosmos"), Path(__file__).parent / "_tmp"):
@@ -124,24 +180,41 @@ class ExApiCosmosPlugin(Star):
         return max(0.3, min(n, 5.0))
 
     def _set_zip_pending(self, event: AstrMessageEvent, href: list[str]):
-        self._zip_pending[self._cache_key(event)] = {"href": [str(href[0]), str(href[1])]}
+        self._cache_gc()
+        self._zip_pending[self._cache_key(event)] = {
+            "ts": time.time(),
+            "href": [str(href[0]), str(href[1])],
+        }
 
     def _get_zip_pending(self, event: AstrMessageEvent) -> dict[str, Any] | None:
-        return self._zip_pending.get(self._cache_key(event))
+        self._cache_gc()
+        val = self._zip_pending.get(self._cache_key(event))
+        if not isinstance(val, dict):
+            return None
+        href = val.get("href")
+        if not isinstance(href, list) or len(href) < 2:
+            return None
+        return {"href": [str(href[0]), str(href[1])]}
 
     def _clear_zip_pending(self, event: AstrMessageEvent):
         self._zip_pending.pop(self._cache_key(event), None)
 
     def _save_last_items(self, event: AstrMessageEvent, items: list[dict[str, Any]]):
+        self._cache_gc()
         rows: list[dict[str, Any]] = []
         for it in items[: self._page_size()]:
             h = it.get("href") or []
             if isinstance(h, list) and len(h) >= 2:
                 rows.append({"href": [str(h[0]), str(h[1])], "title": str(it.get("title", "未知标题"))})
-        self._last_items[self._cache_key(event)] = rows
+        self._last_items[self._cache_key(event)] = {
+            "ts": time.time(),
+            "items": rows,
+        }
 
     def _pick_cached_href(self, event: AstrMessageEvent, idx: int) -> list[str] | None:
-        arr = self._last_items.get(self._cache_key(event), [])
+        self._cache_gc()
+        entry = self._last_items.get(self._cache_key(event), {})
+        arr = entry.get("items", []) if isinstance(entry, dict) else []
         if 1 <= idx <= len(arr):
             h = arr[idx - 1].get("href") or []
             if isinstance(h, list) and len(h) >= 2:
@@ -178,14 +251,31 @@ class ExApiCosmosPlugin(Star):
         tmp_dir = Path(tempfile.mkdtemp(prefix="exprev_", dir=str(self._temp_root())))
 
         sem = asyncio.Semaphore(2)
+        cover_force_proxy = self._force_proxy_for_covers()
+        cover_use_proxy = cover_force_proxy and bool(self._proxy())
+        cover_verify_tls = self._tls_verify()
+        cover_connector = aiohttp.TCPConnector(
+            limit=16,
+            limit_per_host=4,
+            ttl_dns_cache=300,
+            ssl=(False if not cover_verify_tls else None),
+            enable_cleanup_closed=True,
+            family=socket.AF_INET,
+        )
 
-        async def _one(idx: int, url: str):
-            async with sem:
-                p = await self.downloader.download_image(url, temp_dir=tmp_dir, force_proxy=True)
-                return idx, p
+        async with aiohttp.ClientSession(connector=cover_connector, trust_env=self._trust_env()) as cover_sess:
+            async def _one(idx: int, url: str):
+                async with sem:
+                    p = await self.downloader.download_image(
+                        url,
+                        temp_dir=tmp_dir,
+                        session=cover_sess,
+                        force_proxy=cover_use_proxy,
+                    )
+                    return idx, p
 
-        tasks = [_one(i + 1, u) for i, u in enumerate(previews)]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+            tasks = [_one(i + 1, u) for i, u in enumerate(previews)]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
         ok: list[tuple[int, str]] = []
         fail = 0
@@ -350,12 +440,37 @@ class ExApiCosmosPlugin(Star):
         except asyncio.TimeoutError:
             p.kill()
             raise RuntimeError("请求超时")
+
+        stderr_text = err.decode("utf-8", errors="ignore").strip()
+        if p.returncode not in (0, None):
+            msg = stderr_text or f"bridge 进程退出码 {p.returncode}"
+            raise RuntimeError(msg)
+
         text = out.decode("utf-8", errors="ignore").strip()
         if not text:
-            raise RuntimeError("bridge 无返回")
-        data = json.loads(text.splitlines()[-1])
+            msg = stderr_text[:300] if stderr_text else "bridge 无返回"
+            raise RuntimeError(msg)
+
+        data = None
+        for line in reversed(text.splitlines()):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(obj, dict) and ("ok" in obj or "data" in obj or "error" in obj):
+                data = obj
+                break
+        if not isinstance(data, dict):
+            raise RuntimeError("bridge 返回格式异常（未找到 JSON 结果）")
+
         if not data.get("ok", False):
-            raise RuntimeError(data.get("error", "未知错误"))
+            em = str(data.get("error", "") or "").strip()
+            if not em and stderr_text:
+                em = stderr_text[:300]
+            raise RuntimeError(em or "未知错误")
         return data.get("data", {})
 
     def _fmt_list(self, title: str, items: list[dict[str, Any]], page: int, pages: int, nxt: str) -> str:
@@ -383,21 +498,40 @@ class ExApiCosmosPlugin(Star):
 
         tmp = Path(tempfile.mkdtemp(prefix="exsr_", dir=str(self._temp_root())))
         sem = asyncio.Semaphore(4)
-
-        async def _one(idx: int, it: dict[str, Any]):
-            async with sem:
-                cover = str(it.get("cover", "")).strip()
-                if not cover:
-                    return idx, None
-                h = it.get("href") or []
-                ref = "https://exhentai.org/"
-                if isinstance(h, list) and len(h) >= 2:
-                    ref = f"https://exhentai.org/g/{h[0]}/{h[1]}/"
-                p1 = await self.downloader.download_image(cover, temp_dir=tmp, referer=ref, fast=True, force_proxy=True)
-                return idx, p1
+        cover_force_proxy = self._force_proxy_for_covers()
+        cover_use_proxy = cover_force_proxy and bool(self._proxy())
+        cover_verify_tls = self._tls_verify()
+        cover_connector = aiohttp.TCPConnector(
+            limit=20,
+            limit_per_host=6,
+            ttl_dns_cache=300,
+            ssl=(False if not cover_verify_tls else None),
+            enable_cleanup_closed=True,
+            family=socket.AF_INET,
+        )
 
         try:
-            rs = await asyncio.gather(*[_one(i + 1, it) for i, it in enumerate(shown)], return_exceptions=True)
+            async with aiohttp.ClientSession(connector=cover_connector, trust_env=self._trust_env()) as cover_sess:
+                async def _one(idx: int, it: dict[str, Any]):
+                    async with sem:
+                        cover = str(it.get("cover", "")).strip()
+                        if not cover:
+                            return idx, None
+                        h = it.get("href") or []
+                        ref = "https://exhentai.org/"
+                        if isinstance(h, list) and len(h) >= 2:
+                            ref = f"https://exhentai.org/g/{h[0]}/{h[1]}/"
+                        p1 = await self.downloader.download_image(
+                            cover,
+                            temp_dir=tmp,
+                            referer=ref,
+                            session=cover_sess,
+                            fast=True,
+                            force_proxy=cover_use_proxy,
+                        )
+                        return idx, p1
+
+                rs = await asyncio.gather(*[_one(i + 1, it) for i, it in enumerate(shown)], return_exceptions=True)
             cover_map: dict[int, str] = {}
             for r in rs:
                 if isinstance(r, tuple) and len(r) == 2 and isinstance(r[0], int) and isinstance(r[1], str) and r[1]:

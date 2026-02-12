@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 from urllib.parse import quote, urlsplit
 
+import ssl
+
 import aiohttp
 
 import ex_parser
@@ -20,12 +22,38 @@ USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTM
 
 
 class ExDownloader:
-    def __init__(self, get_proxy: Callable[[], str | None], get_cookie_header: Callable[[], str], call_bridge: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]], get_temp_root: Callable[[], Path], logger: Any):
+    def __init__(
+        self,
+        get_proxy: Callable[[], str | None],
+        get_cookie_header: Callable[[], str],
+        call_bridge: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]],
+        get_temp_root: Callable[[], Path],
+        logger: Any,
+        get_tls_verify: Callable[[], bool] | None = None,
+        get_trust_env: Callable[[], bool] | None = None,
+        get_max_redirects: Callable[[], int] | None = None,
+        get_hath_use_proxy: Callable[[], bool] | None = None,
+    ):
         self._get_proxy = get_proxy
         self._get_cookie_header = get_cookie_header
         self._call_bridge = call_bridge
         self._get_temp_root = get_temp_root
         self._logger = logger
+        self._get_tls_verify = get_tls_verify or (lambda: True)
+        self._get_trust_env = get_trust_env or (lambda: False)
+        self._get_max_redirects = get_max_redirects or (lambda: 5)
+        self._get_hath_use_proxy = get_hath_use_proxy or (lambda: False)
+
+    def _ssl_param(self):
+        return None if self._get_tls_verify() else False
+
+    def _ssl_context(self) -> ssl.SSLContext | None:
+        if self._get_tls_verify():
+            return None
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
 
     async def download_image_via_gallery_dl(
         self,
@@ -38,11 +66,13 @@ class ExDownloader:
         gdl_dir = out_path.parent / f'.gdl_{out_path.stem}'
         gdl_dir.mkdir(parents=True, exist_ok=True)
         cmd = [
-            'gallery-dl', '--no-skip', '--no-mtime', '-4', '--no-check-certificate',
+            'gallery-dl', '--no-skip', '--no-mtime', '-4',
             '-R', '2', '--http-timeout', ('25' if fast else '45'),
             '-a', headers.get('User-Agent', 'Mozilla/5.0'),
             '-D', str(gdl_dir), '-f', '/O',
         ]
+        if not self._get_tls_verify():
+            cmd.append('--no-check-certificate')
         referer = headers.get('Referer', 'https://exhentai.org/')
         cmd += ['-o', f'extractor.*.headers.Referer={referer}']
         if proxy:
@@ -82,6 +112,7 @@ class ExDownloader:
         host_fail: dict[str, int] | None = None,
         fast: bool = False,
         force_proxy: bool = False,
+        redirect_left: int | None = None,
     ) -> str | None:
         """下载图片到本地临时目录，返回本地路径；失败返回 None。"""
         if not isinstance(url, str) or not url.strip():
@@ -109,12 +140,16 @@ class ExDownloader:
         if out_path.exists() and out_path.stat().st_size > 0:
             return str(out_path)
 
+        max_redirects = self._get_max_redirects()
+        if redirect_left is None:
+            redirect_left = max_redirects
         proxy = self._get_proxy()
         base_headers = {
             "User-Agent": USER_AGENT,
             "Referer": (referer or "https://exhentai.org/"),
             "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
         }
+        trust_env = self._get_trust_env()
         batch = host_fail is not None
         if fast:
             timeout = aiohttp.ClientTimeout(total=30, connect=8, sock_read=20)
@@ -143,8 +178,9 @@ class ExDownloader:
             if is_fullimg:
                 req_headers["Cookie"] = self._get_cookie_header()
             if is_hath_host:
+                hath_proxy = proxy if self._get_hath_use_proxy() else None
                 p_gdl = await self.download_image_via_gallery_dl(
-                    cur, out_path, req_headers, proxy=None, fast=fast
+                    cur, out_path, req_headers, proxy=hath_proxy, fast=fast
                 )
                 if p_gdl:
                     return p_gdl
@@ -164,7 +200,17 @@ class ExDownloader:
                     if loc and loc.startswith("//"):
                         loc = "https:" + loc
                     if loc and loc.startswith("http"):
-                        return await self.download_image(loc, temp_dir=temp_dir, referer=referer, session=session, host_fail=host_fail, force_proxy=force_proxy)
+                        if redirect_left <= 0:
+                            raise RuntimeError("too many redirects")
+                        return await self.download_image(
+                            loc,
+                            temp_dir=temp_dir,
+                            referer=referer,
+                            session=session,
+                            host_fail=host_fail,
+                            force_proxy=force_proxy,
+                            redirect_left=redirect_left - 1,
+                        )
                 if resp.status != 200:
                     raise RuntimeError(f"HTTP {resp.status}")
                 real_url = str(getattr(resp, "url", "") or "")
@@ -197,11 +243,20 @@ class ExDownloader:
                 return str(out_path)
 
             try:
+                ssl_param = self._ssl_param()
                 if session is not None and not is_hath_host:
-                    async with session.get(cur, headers=req_headers, ssl=False, proxy=cur_proxy, allow_redirects=not is_fullimg, timeout=timeout) as resp:
+                    async with session.get(cur, headers=req_headers, ssl=ssl_param, proxy=cur_proxy, allow_redirects=not is_fullimg, timeout=timeout) as resp:
                         return await _save_from_resp(resp)
-                async with aiohttp.ClientSession(timeout=timeout, trust_env=True, connector=aiohttp.TCPConnector(ssl=False, family=socket.AF_INET, enable_cleanup_closed=True)) as sess:
-                    async with sess.get(cur, headers=req_headers, ssl=False, proxy=cur_proxy, allow_redirects=not is_fullimg) as resp:
+                async with aiohttp.ClientSession(
+                    timeout=timeout,
+                    trust_env=trust_env,
+                    connector=aiohttp.TCPConnector(
+                        ssl=self._ssl_context(),
+                        family=socket.AF_INET,
+                        enable_cleanup_closed=True,
+                    ),
+                ) as sess:
+                    async with sess.get(cur, headers=req_headers, ssl=ssl_param, proxy=cur_proxy, allow_redirects=not is_fullimg) as resp:
                         return await _save_from_resp(resp)
             except Exception as e:
                 h = urlsplit(cur).netloc.lower()
@@ -240,6 +295,9 @@ class ExDownloader:
         page_id = str(view[1])
         proxy = self._get_proxy()
         url = base + ("?nl=" + quote(str(nl), safe="") if nl else "")
+
+        ssl_param = self._ssl_param()
+        trust_env = self._get_trust_env()
 
         if proxy and str(proxy).lower().startswith("socks"):
             data = await self._call_bridge(
@@ -285,7 +343,7 @@ class ExDownloader:
                             "https://exhentai.org/api.php",
                             json=api_payload,
                             headers=api_headers,
-                            ssl=False,
+                            ssl=ssl_param,
                             proxy=proxy,
                             timeout=api_timeout,
                         ) as resp:
@@ -293,8 +351,8 @@ class ExDownloader:
                                 raise RuntimeError(f"HTTP {resp.status}")
                             raw = await resp.text(errors="ignore")
                     else:
-                        async with aiohttp.ClientSession(timeout=api_timeout, headers=api_headers, trust_env=True) as sess:
-                            async with sess.post("https://exhentai.org/api.php", json=api_payload, ssl=False, proxy=proxy) as resp:
+                        async with aiohttp.ClientSession(timeout=api_timeout, headers=api_headers, trust_env=trust_env) as sess:
+                            async with sess.post("https://exhentai.org/api.php", json=api_payload, ssl=ssl_param, proxy=proxy) as resp:
                                 if resp.status != 200:
                                     raise RuntimeError(f"HTTP {resp.status}")
                                 raw = await resp.text(errors="ignore")
@@ -327,13 +385,13 @@ class ExDownloader:
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }
         if session is not None:
-            async with session.get(url, headers=headers, ssl=False, proxy=proxy, timeout=timeout) as resp:
+            async with session.get(url, headers=headers, ssl=ssl_param, proxy=proxy, timeout=timeout) as resp:
                 if resp.status != 200:
                     raise RuntimeError(f"HTTP {resp.status}")
                 text = await resp.text(errors="ignore")
         else:
-            async with aiohttp.ClientSession(timeout=timeout, headers=headers, trust_env=True) as sess:
-                async with sess.get(url, ssl=False, proxy=proxy) as resp:
+            async with aiohttp.ClientSession(timeout=timeout, headers=headers, trust_env=trust_env) as sess:
+                async with sess.get(url, ssl=ssl_param, proxy=proxy) as resp:
                     if resp.status != 200:
                         raise RuntimeError(f"HTTP {resp.status}")
                     text = await resp.text(errors="ignore")
