@@ -157,7 +157,7 @@ services:
 
 ## 致谢
 
-- 感谢开源项目 **gallery-dl**（https://github.com/mikf/gallery-dl），本插件在 H@H 图片下载链路中引入其能力以提升稳定性与兼容性。
+- 感谢开源项目 **gallery-dl**(https://github.com/mikf/gallery-dl)，本插件在 H@H 图片下载链路中引入其能力以提升稳定性与兼容性。
 - 感谢 **exApi / Ehviewer** 社区的开源实践与思路参考。
 
 ## 免责声明
